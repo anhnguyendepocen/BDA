@@ -1,0 +1,478 @@
+---
+title: "Big Data Analytics Week 3"
+author: "Bertie Vidgen"
+date: "02/02/2019"
+output: html_document
+---
+
+# BDA Week 3 notes
+In the first half of the lecture we look at how to plot two variables together, using some extensions on the scatterplot. We then look at how to plot error bars, using the 'error_bars()' command from the 'rBDA' package. In the second half we look at how to model non-linear relationships in bivariate data, using LOESS curves and logarithms.
+
+This week is more technically demanding than the last two - if you have any issues, please shoot me an email at bertievidgen@gmail.com
+
+
+Set up the R workspace and load the required packages/data.
+
+```{r setup, echo = F, message = F, warning = F}
+#rm(list=ls()) #clear the workspace
+options(scipen=10) #makes the output more readable by increasing the number of values before scientific notation is used.
+
+fun_check_packages <- function(x){
+  for (i in seq(1,length(x))){
+    if (!x[i] %in% installed.packages()){
+    install.packages(x[i])}
+    library(x[i],character.only=TRUE)}
+}
+packs = c('ggplot2', 'LSD','dplyr','tidyr','scales','knitr', 'readr', 'devtools', 'cowplot')
+fun_check_packages(packs); rm(packs)
+
+#devtools::install_github("bvidgen/rBDA", force = T)
+library("rBDA")
+
+# load the data
+load('~/Dropbox/BDA-2019/bda_week3.RData')
+```
+
+# Bivariate Data
+
+## Histograms
+This week we are looking at bivariate data (i.e. where there is both an x and y). First, let's look at the variables using a histogram
+
+```{r hist}
+# produce histograms of x and y
+mydata2 %>%
+  gather(.) %>%
+  ggplot2::ggplot(., aes(value)) +
+  geom_histogram(bins = 25,
+                 color = 'black',
+                 fill = 'grey',
+                 alpha = 0.6) +
+  facet_wrap(~key,
+             scales = 'free')
+
+```
+
+## Scatterplots
+Typically, we use just a standard scatterplot to visualize bivariate data - but sometimes this doesn't work very well. Look at this data:
+
+```{r bivariate_plot1}
+# produce a scatterplot using Base R
+plot(mydata2$x, mydata2$y) # bit ugly
+
+# produce a nicer looking scatterplot using ggplot2
+ggplot(mydata2,
+       aes(x, y)) + 
+  geom_point(color = 'blue',
+             size = 0.1) +
+  labs(x = 'Temperature',
+       y = 'Pressure') +
+  ggtitle('Pressure vs. temperature') # bit nicer but still not great
+```
+
+It is hard to interpret this plot because there are so many data points. When the data is too dense we can create scatterplots with rug plots, heat plots, hexagonal heat plots and contour lines.
+
+The heat plot is the best way of visualizing very dense data - the countour lines are only preferrable if you are working in black and white, and rug plots are just a handy feature which can be easily added to any graph.
+
+```{r bivariate_plot2}
+# 1. Marginal rug plots
+ggplot(mydata2,
+       aes(x, y)) +
+  geom_point(color = 'blue',
+             size = 0.1) +
+  geom_rug(sides = "lb") + # to put the rugplots elsewhere adjust this: top=t, right=r, left=l, bottom=b. See the documentation for more info: http://docs.ggplot2.org/current/geom_rug.html
+  xlab('Temperature') +
+  ylab('Pressure') +
+  ggtitle('Pressure vs. temperature')
+
+
+# 2. Hexagonal heat plot
+mydata2 %>% 
+  ggplot(aes(x, y)) +
+  geom_hex(bins = 50) + # adjust the number of bins to get more/fewer hexagons
+  viridis::scale_fill_viridis() +
+  xlab('Temperature') +
+  ylab('Pressure') +
+  ggtitle('Pressure vs. temperature')
+  theme_minimal()
+
+  
+# 3. Heat scatter plot
+LSD::heatscatter(mydata2$x, mydata2$y) # sadly we have to venture outside the 'tidyverse' for this. See at the end of this script for how to SAVE an LSD heatscatterplot.
+
+# Nicer looking heat scatter plot
+LSD::heatscatter(mydata2$x, mydata2$y, 
+                 cexplot = 0.2, 
+                 alpha = 99,
+            main = 'Pressure vs. temperature',
+            xlab = 'Temperature', ylab = 'Pressure',
+            method = 'pearson')
+# Info about the params passed to heatscatter:
+  # alpha = 99 (from 1 to 99) to make the plot less/more transparent
+  # rev = T to invert the color palette
+  # add.contour = T to add the contour lines (doesn't look very nice)
+  # greyscale = T to produce the plot without color.
+
+# 4. Contour lines to show density
+ggplot(mydata2,
+       aes(x,y)) +
+  geom_point(color = 'orange',
+             size = 0.1) + 
+  geom_density2d(color = 'black') +
+  labs(x = 'Temperature',
+       y = 'Pressure') +
+  ggtitle('Pressure vs. temperature')
+```
+
+We can also fit a line to te x/y data
+
+```{r bivariate_plot3}
+ggplot(mydata2,
+       aes(x,y)) +
+  geom_point(color = 'blue',
+             size = 0.1) +
+  geom_rug(sides = "lb") + # to put the rugplots elsewhere adjust this: top=t, right=r,left=l,bottom=b
+  labs(x = 'Temperature',
+       y = 'Pressure') +
+  ggtitle('Pressure vs. temperature') +
+  geom_smooth(color = 'red', # geom_smooth has many parms to adjust, see the documentation for more details
+              method = 'lm', # stipulate that we want just a linear regression model. For BDA, I would just stick to using this method
+              se = F) # remove the Standard Error bars for a cleaner visualization - but you might want them for your assignments
+
+# is this line a good fit?
+fit.bivariate = lm(y ~ x,
+                   data = mydata2)
+summary(fit.bivariate) # very significant model overall, and both terms are significant
+summary(fit.bivariate)$r.squared # 0.47
+```
+
+
+
+## Error bars and binned data analysis
+
+Error bars give us an idea of how much variability a variable has; they measure the dispersion of the data. They are an incredibly useful way of gaining additional insight. From term 1 statistics, you are probably somewhat familiar with a confidence interval, which quantifies how well a sample estimates a population parameter (and as such tells you about the statistical significance). 
+Two other error bars are (a) standard deviation (a measure of how spread out values are) and (b) standard error (a measure of how spread out the sampling distribution is). See this research note for some excellent chat about how these two are calculated and how they differ: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC1255808/
+
+When working with continuous data (as with most of the exercises in this class) we need to bin variables to produce error bars. For 'df' we are going to bin 'x' as this is the independent variable. We make bins which are evenly spaced across the values of the x variable. We can then see how the values of y vary *within* each x bin, and use this to create error bars. This might sound a bit complicated but it should become clear once you see it in practice. Just remember that every y value will be assigned to one of the bins .
+
+```{r error_function_1}
+# Use the error_bars() function from the bvidgen/RPackage package:
+my.results = error_bars(mydata2,
+                       draw = 'both') #first, create the error_bars.out object
+
+# NOTE:
+# you need to pass the error_bars function a single dataframe - and it MUST be formatted as data.frame(x,y). If you have a dataframe with more variables then you need to make a new one to use the error_bars function. This is quite easy to do, e.g.:
+df.new = data.frame(x = mydata2$x,
+                    y = mydata2$y)
+rm(df.new)
+```
+
+We can now inspect the output created by the error_bars() function:
+
+```{r error_function_5, results = F}
+my.results$plot # inspect the plot
+my.results$df.summary # inspect the df.summary with all of the summary variables (this can be used for further analysis)
+# you can also save this as a dataframe:
+df.summary = my.results$df.summary
+df.summary # Key variables to look at:
+  # 'num' - showing the number of values in that bin
+  # # ymean - the average y values in that bin
+  
+my.results$df # this is really useful - it is the same df as we inputted to the function (mydata2), but with the bin_x values attached. This will prove very important when we want to produce more advanced plots
+
+?error_bars # for more info look at the help pages
+```
+
+Two notes on the error_bars() function:
+
+First, you can adjust what values are graphed by adjusting the draw argument - it takes 'both' as default, but you can also stipulate to just draw 'standard deviation' or 'standard error. Try this in the code chunks above.
+
+Second, you can manually stipulate what bins you want to use. Now, you most likely won't need to worry about this, so feel free to skip on to the next code chunk. Anyway, for those of you who are #Nerds... If you don't stipulate the bins then the function automatically calculates values, setting the number of bins to 10. However, in some cases this won't be appropriate - Often the function creates fractions (i.e. in this case, each bin is equal to 1.6 of x), which may not be supported by the data (e.g. if x were edit counts on Wikipedia this might not make sense as you can't have 1.6 edits). You may also want fewer or more bins than 10. To get round this problem, pass the function the bins you want use by adjusting the values in 's'. If you're having any issues with this, then just email me at bertievidgen@gmail.com
+
+```{r error_function_2, results = F}
+# we use exploratory analysis to decide what bins are appropriate, such as:
+quantile(mydata2$x)
+range(mydata2$x) # 2 to 18 would cover the full range of data
+
+# We set s by looking at df$x. The values run from approximately 2 to 18. Therefore, if we had bins running from 4 to 18, and increasing by 2 every time our data would be well covered
+s = seq(4, 18, by = 2) # we start at 4 because this will cover all the values *up to* 4
+my.results2 = error_bars(mydata2, s)
+my.results2$plot # the data is split into 8 rather than 10 bins
+my.results2$df.summary # each of the bins are integer values
+my.results2$df
+```
+
+Now, back to the analysis...
+
+Sometimes, if the data is very messy, it is better to plot against the binned values. We can fit a line against these binned values and calculate the scaling factor. We can use the df.summary we created through the error_bars() function to do this.
+
+```{r error_bars_5}
+# extract the dataframes from the my.results object:
+df.summary = my.results$df.summary # the summary information for the bins, with all of the calculated variables
+df.extended = my.results$df # the original dataframe (mydata2) we passed to the function, with the bin values attached
+
+# Plot
+# this is quite complicated R code but try work through it by running just a few lines of it at a time, iteratively expanding how much of the code you run so you understand what is happening
+ggplot(df.summary,
+       aes(xmean, ymean)) +
+  geom_point(size = 2) + # each point shows a bin - with the mean x value and the mean y value
+  geom_errorbar(aes(ymin = ymean_minus_sd,
+                    ymax = ymean_plus_sd, width = 0.75)) + # shows the dispersion in the data. You could change this to the standard error, rather than the standard deviation
+  geom_smooth(color = 'red', method = 'lm', se = F) + # fit a line to the biined values
+  geom_point(data = df.extended, # put the original data on the plot - gives an idea also of how many values are in each bin
+             aes(x, y),
+             color = 'blue',
+             alpha = 0.02,
+             size = 1) +
+  xlab('x') + 
+  ylab('y') + 
+  ggtitle('y vs. x') +
+  theme_minimal() # look at the documentation for more options to make the labelling look nicer
+```
+
+The graph above shows the original plot of data in the background. Over the top we have the binned values with standard error bars. We have then fitted a line to the binned values (rather than to the original values). This is a lot of data in one go!!
+
+You may want to see a line fitted for both the binned values and the original data points. This is quite easy to do (see the graph below). In this case, the difference between the line fitted to the real data and the line fitted to the binned data is not very large, but in other cases it will be very substantial.
+
+Note - I wouldn't recommend presenting this for your assignments or any publications, but it can be an interesting diagonistic as you build your analysis.
+
+```{r error_bars_6}
+# We use the same dataframes we extracted in the code chunk above ('df.summary', 'df.extended')
+
+# Same plot but with the abline for both the original data and the binned values:
+ggplot(df.summary,
+       aes(xmean, ymean)) +
+  geom_point(size = 2) +
+  geom_errorbar(aes(ymin = ymean_minus_sd,
+                    ymax = ymean_plus_sd,
+                    width = 0.75)) + # same error bars as above
+  geom_smooth(color = 'red',
+              method = 'lm',
+              se = F) + # fitted line for the binned values in red (as we had before)
+  geom_smooth(data = mydata2,
+              aes(x, y),
+              color = 'pink',
+              method = 'lm',
+              se = F) + # fitted line for the original data points in pink - it is very similar but slightly lower than the red line. It is also longer (which is to be expected)
+  geom_point(data = df.extended,
+             aes(x, y),
+             color = 'blue',
+             alpha = 0.01,
+             size = 1) +
+  xlab('x') +
+  ylab('y') +
+  ggtitle('y vs. x') +
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        plot.title = element_text(size = 16,
+                                  hjust = 0.5,
+                                  face = 'bold'))
+```
+
+If you want to find out more about calculating error bars in R, then see this discussion on Stack Overflow, there are lots of parameters to adjust: http://stackoverflow.com/questions/13032777/scatter-plot-with-error-bars
+
+Finally (for this part at least....), the last thing we want to do is to fit a line to the*binned values*. There is no point making a great visualization which uses the binned rather than underlying values - and then calculating coefficient and intercept values for the underlying data. Put simply, we need to calculate the line fit (R squared) on the binned values (the dots in the middle of the error bars) - and not the underlying values (the data points in blue)
+
+Thankfully, this is very easy to do using the df.summary object
+
+```{r test}
+fit.test = lm(ymean ~ xmean, # take the mean values in each bin
+              data = df.summary) # use df.summary which we took from the 'myresults' object
+fit.test$coefficients # y-intercept is -2.33 and the xmean is 4.684. For a one unit increase in the mean value of x, there is a 4.68 increase in the mean value of y
+summary(fit.test)$r.squared # as expected, this is super high. R squared for binned values are always going to be impressive, so I wouldn't get too hung up about it when writing up your results (report it, but it doesn't mean as much as a high R squared on the underlying values)
+```
+
+
+
+
+
+## Model and graph bivariate data that has a curvilinear relationship
+
+### Loess curve
+A useful tool for visually analysing data is the LOESS Curve (LOESS stands for LOcal regrESSion). LOESS curves smooth out data so that the general shape can be more easily observed.
+
+In the first plot, we can see a pattern but it is not totally clear. In the second plot the LOESS curve shows us the shape more clearly. Unfortunately, we can't directly interpret the LOESS curve as it is hard to express in mathematical terms - it is really just a diagnostic tool.
+
+```{r loess_1}
+# plot the data
+ggplot(mydata3,
+       aes(x, y)) + 
+  geom_point(color = 'blue',
+             size = 2) + 
+  ggtitle('y vs. x')
+
+# plot the data with a loess curve
+ggplot(mydata3,
+       aes(x, y)) + 
+  geom_point(color = 'blue',
+             size = 2) + 
+  geom_smooth(color = 'black',
+              method = 'loess',
+              span = 0.6, # the span argument controls smoothing (start with a value between 0 and 1). Higher values makes it look smoother
+              se = T) + # the grey area round the black line shows the standard error
+  labs(x = 'x',
+       y = 'y') +
+  ggtitle('y vs. x with LOESS Curve')
+```
+
+
+### Curvilinear data
+Data that has a *linear* relationship is fairly easy to model. We can draw a straight line between the values and then measure, using appropriate statistical tests, how well it fits. e.g.:
+
+```{r linear}
+summary(lm(y2 ~ x,
+           data = mydata3))$r.squared # extract the r squared for the line we fit to the data
+
+ggplot(mydata3,
+       aes(x, y2)) + 
+  geom_point() +
+  geom_smooth(data = mydata3,
+              method = "lm", 
+              color = 'red',
+              se = F) +
+  ggtitle('y vs. x') +
+  annotate('text', # annotate lets us write out the values on the graph
+           label = 'R-squared = 0.98',
+           x = 110,
+           y = 30) # annotate plot with the r squared value
+```
+
+### Log transformations
+Unfortunately, real-world data often does not follow a linear relationship but is curvilinear. This makes it much more difficult to model. One way of modelling this is through logarithms.
+
+```{r log_1}
+# plot data
+ggplot(mydata4,
+       aes(x, y)) + 
+  geom_point() +
+  ggtitle('y vs. x')
+
+# try to fit a straight line to the data
+ggplot(mydata4,
+       aes(x,y)) + 
+  geom_point() +
+  ggtitle('y vs. x') +
+  geom_smooth(data = mydata4,
+              method = "lm",
+              formula = y ~ x,
+              color = 'blue',
+              se = F) # looks pretty terrible
+
+# r squared for a model without any log transformations
+summary(lm(y ~ x, mydata4))$r.squared # 0.31
+```
+
+Without any transformations the r squared is only 0.31 - which is pretty low. We can log transform the data to better model the relationship between the variables:
+
+```{r log_2}
+# plot df4 with a log transformation:
+ggplot(mydata4,
+       aes(x, y)) + 
+  geom_point(size = 0.5) +
+  scale_x_log10() +
+  scale_y_log10() +
+  ggtitle('y vs. x') + 
+  geom_smooth(data = mydata4,
+              method = "lm",
+              formula = y ~ x,
+              color = 'blue',
+              se = F) # the fit looks much better
+
+# created a model of df4 with logs:
+fit.log = lm(log10(y) ~ log10(x),
+             mydata4)
+
+# inspect the r.squared:
+summary(fit.log)$r.squared # 0.78 - far higher than in the linear model (which was 0.31)
+
+# get the exponent of the log:
+fit.log$coefficients #log10(x) is -0.48
+  # This means that a 1% increase in x is associated with a 0.48% decrease in y - see below for more on interpreting this
+  # this can be annotated to your plot
+
+# Produce an annotated pretty looking log-log plot
+ggplot(mydata4,
+       aes(x, y)) + 
+  geom_point(size = 0.5) +
+  geom_smooth(method = 'lm',
+              se = F,
+              color = 'red') +
+  scale_x_log10() +
+  scale_y_log10("y",
+                breaks = trans_breaks("log10", function(x) 10^x),
+                labels = trans_format("log10", math_format(10^.x))
+                ) +
+  annotation_logticks() +
+  xlab('x') + 
+  ggtitle('y vs. x') + 
+  theme(plot.title = element_text(lineheight = 2,
+                                  face = "bold")) +
+  annotate("text",
+           x = 10,
+           y = 3,
+           label = "Exponent = -0.49") +
+  annotate("text",
+           x = 10,
+           y = 2.3,
+           label = "R Squared = 0.95")
+```
+
+Interpreting the output of a log regression is quite different to linear regression because the coefficients are percentages and not units. In this example, a 1 *percent* increase in x is associated with a 0.48 *percent* decrease in y. This means that the relationship is (i) negative and (ii) scales sublinearly. If you increase x by 10% then y will decrease by a smaller amount (4.8%).
+
+If you want some advice on how to interpret the output of the log regression, there is a useful discussion on SO:
+https://stats.stackexchange.com/questions/18480/interpretation-of-log-transformed-predictor
+And a great resource here, particularly the section 'Both dependent and independent variables transformed': https://stats.idre.ucla.edu/sas/faq/how-can-i-interpret-log-transformed-variables-in-terms-of-percent-change-in-linear-regression/
+
+
+We say that a relationship is *superlinear* is the percentage increase is greater than 1. For instance, if our coefficient is 1.15 it means that a 1% increase in x is associated with a 1.15% increase in y. Or, in other words, a 100% increase in x (doubling) is associated with not only double y but double y *plus* 15%. This is super important. Think about it in the context of cities. If you double the population of the city and you get not just double of the good stuff (like social connectedness, wealth, innovation, sanitation, etc.) but double *plus* an extra bit more then it suggests that having big cities is a really good idea. City size and scaling is actually a really interesting area of research - see here for a little bit more: https://kottke.org/11/01/superlinear-scaling-of-cities
+
+BUT! In many cases, relationships are *sublinear*. This is where the percentage increase is less than 1. For instance, if the coefficient is 0.94 then every 1% increase in x is associated with only a 0.94% increase in y. So if we double x then we get slightly less than double the amount of y. It's not all doom and gloom though. With many things, we might think a sublinear relationship isa good thing. Again, with cities - if doubling the population of a city results in less than double the amount of crime, congestion and CO2 emissions then that's a good thing. This would also suggest that having big cities is a good idea.
+
+The key thing here is that the coefficient in the log regression model is a *scaling factor*. You need to know how to interpret this, and identify what it means when the x/y relationship scales sublinearly, superlinearly or just linearly (when the coefficient equals 1).
+
+
+
+
+### Finally, finally - saving an LSD heat scatter plot
+Earlier, I promised to show you how to save an LSD heat scatter plot, which is frankly quite a frustrating endeavour as you cannot use any of the base R commands (this is a new development in the package following some not terribly helpful updates). You also cannot store the heatscatter plots as an object in the Environment. See below...
+
+```{r save-heat-1}
+plot.heatscatter = LSD::heatscatter(mydata2$x,
+                                    mydata2$y, 
+                                     cexplot = 0.2, 
+                                     alpha = 99,
+                                     main = 'Pressure vs. temperature',
+                                     xlab = 'Temperature',
+                                    ylab = 'Pressure',
+                                    method = 'pearson')
+
+# The plot should appear in the 'Plots' window. But, look in the Environment. You will see that for plot.heatscatter it says 'NULL (empty)'
+# And if you try to access the object, the output will also be 'NULL':
+plot.heatscatter
+# So, unfortunately, we cannot use our normal commands. Instead, we have to use the slightly frustrating methods in the LSD package...
+
+## How to save an LSD heatscatter plot
+# First, make a function called 'plotsfkt' that contains your heatscatter plot - this is where you need to fix all of the params as you want them
+  # e.g. sort out the title, the labels, cexplot, alpha, logarithmic axes (if needed) etc.
+plotsfkt = function(){LSD::heatscatter(mydata2$x,
+                                    mydata2$y,
+                                    cexplot = 0.2, 
+                                    alpha = 99,
+                                    main = 'Pressure vs. temperature',
+                                    xlab = 'Temperature',
+                                    ylab = 'Pressure',
+                                    method = 'pearson')}
+
+# Second, use the plotit() command to save your output. Read the comments from each line
+LSD::plotit(filename = '~/Dropbox/heatscatter',
+            sw = 1,
+            sh = 1,
+            sres = 1,
+            plotsfkt,
+            saveit = TRUE, 
+            fileformat = "pdf")
+
+# If you have any problems email me at bertie.vidgen@oii.ox.ac.uk and I will help you troubleshoot.
+```
+
+*End of Workshop notes*
+

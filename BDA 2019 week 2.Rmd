@@ -1,0 +1,539 @@
+---
+title: "Big Data Analytics Week 2"
+author: "Bertie Vidgen"
+date: "31/01/2019"
+output: html_document
+---
+
+# BDA Week 2 notes
+In this workshop we start by looking at how to plot a single variable using histograms, probability density functions and the cumulative distribution function. These are the three most common ways of plotting univariate distributions. Then we look at how to check whether a variable is normally distributed, and the three most common types of non-normal distributions: power laws, log-normal, exponentials. At the end we provide some illustrative code to provide more insight into power laws, exponents and logarithms. There's also some code showing you how to save ggplot plots.
+
+Set up the R workspace and load the required packages/data.
+
+```{r setup, echo=F, message = F, warning = F}
+options(scipen = 10) # makes the output more readable by increasing the number of values before scientific notation is used.
+
+# Load packages
+fun.check.packages <- function(x){
+  for (i in 1:length(x)){
+    if (!x[i] %in% installed.packages()){
+    install.packages(x[i])}
+    library(x[i],character.only=TRUE)}
+}
+packs = c('knitr', 'ggplot2', 'LSD','dplyr','tidyr','scales', 'cowplot', 'MASS', 'gridExtra')
+fun.check.packages(packs); rm(packs); rm(fun.check.packages)
+
+# Load the data for today's class
+load("~/Dropbox/BDA-2019/BDA_week2.RData")
+```
+
+
+## Histograms
+Histograms bin the data into equally spaced intervals, and then counts the number of instances within each bin. This is a simple but very effective way of representing a continuous distribution.
+
+Plot a histogram of x values
+
+```{r plot_x}
+# produce a histogram of x using the base R package - this is fine but we can't adjust many of the prams very easy and it's a bit ugly
+hist(mydata$a)
+
+# produce a nicer looking histogram of x using ggplot2
+ggplot(mydata, aes(a)) +
+  geom_histogram(bins = 50, # adjust this parameter to change the number of bins
+                 color = 'black',
+                 fill = 'grey',
+                 alpha = 0.6) +
+  ggtitle('Histogram of a') +
+  theme_minimal() # adjust or remove this (e.g. theme_bw()) to change the visualization
+```
+
+Another way of representing a single variable is to use a probability density function (PDF). Wikipedia describes it thusly: "the PDF is used to specify the probability of the random variable falling within a particular range of values, as opposed to taking on any one value. This probability is given by the integral of this variable’s PDF over that range — that is, it is given by the area under the density function but above the horizontal axis and between the lowest and greatest values of the range. The probability density function is nonnegative everywhere, and its integral over the entire space is equal to one." This can be summarised as: a probability density function gives you the probability of a variable falling between any two values.
+
+A PDF can be easier to interpret than a histogram - because it smooths the values it can be seen as a closer approximation of the underlying population from which your sample was taken. BUT it can also mean you miss important variations in your sample. See the scribblings of the great Andrew Gelman on this: http://andrewgelman.com/2009/10/23/variations_on_t/
+
+```{r pdf}
+ggplot(mydata, aes(a)) +
+  geom_density()
+```
+
+You can combine both these functions in ggplot2 to create a histogram with the PDF overlaid:
+
+```{r pdf_hist}
+ggplot(mydata, aes(a)) + 
+    geom_histogram(aes(y = ..density.. ), # this stipulates that we want the density instead of the count on y-axis - otherwise the histogram and PDF will have different scales
+                   bins = 50,
+                   color = 'black',
+                   fill = 'grey',
+                   alpha = 0.6) +
+  geom_density(alpha = 0.2,
+               fill = 'pink') # Use alpha to make the overlay transparent
+```
+
+A final way of plotting your data is with a Cumulative Distribution Function (CDF). CDFs have their fans (see this bloke's explanation of why they are just super - http://www.andata.at/en/software-blog-reader/why-we-love-the-cdf-and-do-not-like-histograms-that-much.html ) but they can be quite hard to interpret. So only use a CDF if you are sure you know what you are looking at!
+
+```{r ecdf, error=FALSE, warning=FALSE}
+# Use the ecdf function to compute the ecdf for our variable (we are still using df.normal$x)
+my.ecdf = stats::ecdf(mydata$a)
+
+# Create a dataframe with the ecdf values for each corresponding variable
+df.ecdf = data.frame(x1 = sort(mydata$a), # these are the values of our variable - sorted into order from smallest to highest. We want them in order because we are calculating the *cumulative* values
+                y2 = my.ecdf(sort(mydata$a) )) # these are the corresponding ecdf values for each value of our variable; for each value it calculates its cumulative probability
+
+# Plot the ECDF for the normal data
+ggplot(data = df.ecdf,
+       aes(x1, y2) ) +
+  geom_line() +
+  geom_point(color = "black") +
+  ggtitle('ECDF of a') +
+  xlab('a') +
+  ylab('Cumulative probability') # you can add scale_x_log10() and scale_y_log10() for power laws
+
+```
+
+The nice thing about using a CDF is that we can easily plot alongside it what we think the underlying theoretical distribution is (in this case, the data is normally distributed). We can then compare the empirical distribution we have observed against the theoretical distribution.
+
+```{r ecdf-2}
+# Fit the parameters of the normal distirbution using Maximum Likelihood Estimation (MLE) via the MASS package - simply, we've estimated the two params of the normal distribution (the mean and the standard deviation) that will best fit our observed data (the mydata$x variable)
+fit <- MASS::fitdistr(mydata$a,
+                      densfun = "normal") # use ?fitdistr to find out more about this function
+params = fit$estimate
+params # our estimated values
+
+# Create a dataframe with both the actual and estimated values
+est.df = data.frame(x3 = sort(mydata$a), # we use the same values of x as before 
+                y4 = sort(pnorm(mydata$a,
+                                mean = params[1],
+                                sd = params[2]))) # we generate the values of the theoretical normal distribution using pnorm. pnorm is a random sampling function which calculates values for a CDF. It tells you the cumulative probability of each of the x values. We use the params that we fitted using the MASS package as well as the variable we fitted them to (df.normal$x)
+
+# Plot both ECDF and estimated CDF together
+ggplot() + 
+  geom_point(data = df.ecdf,
+             aes(x1, y2),
+             color = "black") + # plot the ecdf, using the ACTUAL values, that we calculated in the previous chunk
+  ggtitle('ECDF of a') +
+  geom_line(data = est.df,
+            aes(x3, y4),
+            color = 'red') + # plot the estimated cdf that we've just calculated as a red line
+  xlab('a values') +
+  ylab('Cumulative probability')
+
+# Based on: https://stackoverflow.com/questions/39961964/fitting-a-normal-distribution-in-r
+```
+
+
+## Normal Distribution
+
+What function do you think best approximates the shape of the a variable? i.e. do you think that it is normally distributed? (spoiler alert; YES ...) We can test whether the variable is normal by using the Shapiro-Wilk test of Normality:
+
+```{r shapiro}
+shapiro.test(mydata$a)
+```
+In a Shapiro-Wilk test the null hypothesis is that the population from which the sample has been taken is normally distributed - i.e. our null is that the data IS normally distributed.
+
+As with all p-values tests, a very low p-value means that we have strong grounds to reject the null hypothesis. In this case we have a very high p-value. We therefore "fail to reject" the null, and can "tentatively accept"" that this variable comes from a normal distribution.
+
+We can verify this finding by inspecting the quantile-quantile (q-q) plot. A q-q plot plots the quantiles of a variable against either a pre-determined distribution (in this instance, normal) or another variable. Quantiles are "cutpoints dividing the range of a probability distribution into contiguous intervals with equal probabilities" (Wikipedia) - it is where you split the variable into equally sized portions. A straight line means that the two distributions you've compared are the same.
+
+```{r qq}
+qqnorm(mydata$a) # huzzah, it's straight!
+```
+
+## Non-normal distributions
+
+### Power laws
+Often, when we plot real-world data it has a 'long tailed' distribution, which looks like this:
+
+```{r log_power_1}
+ggplot(mydata,
+       aes(b)) +
+  geom_histogram(bins = 50,
+                 color = 'black',
+                 fill = 'grey',
+                 alpha = 0.6) + 
+  theme_bw() 
+```
+
+It's hard to see what type of distribution this variable is just from this plot - but if we log transform the data then we can better understand it. The graph below is a lin-log plot. This means that the x-axis is log-transformed and the y-axis is linear. We can now see the shape of the variable better - a curve on a log-lin plot (as we can observe here) means that the variable follows a power law function. 
+
+FYI - a logarithm (usually just called a 'log') is a simple mathematical function that tells you what power a base value must be raised to in order to calculate the given value. So if our given value is 100 and we are using base 10 then the log tells us what 10 should be raised to in order to calculate 100. Here, the answer is 2: log10(100)=2 as 10^2=100. Often, bases other than 10 are used (2 and 'e' are very common). Hopefully you're familiar with logs, but if you're not then a great introduction is available at https://www.mathsisfun.com/algebra/logarithms.html
+
+
+```{r log_power_2}
+# plot a histogram with the x-axis log-transformed
+ggplot(mydata,
+       aes(b)) +
+  geom_histogram(bins = 25,
+                 color = 'black',
+                 fill = 'grey',
+                 alpha = 0.6) + 
+  theme_bw() + 
+  scale_x_log10() + # NOTE: here we are log transforming the x axis - log transforming the variable itself would have the same effect
+                                    xlab('log b') + 
+                                    ylab('count')
+
+# plot a histogram with density 
+ggplot(mydata,
+       aes(b)) +
+  geom_histogram(aes(y = ..density.. ),
+                 bins = 25,
+                 color = 'black',
+                 fill = 'grey',
+                 alpha = 0.6) + 
+  theme_bw() + 
+  scale_x_log10() +
+  xlab('log b') + 
+  ylab('count') + 
+  geom_density(alpha = 0.2,
+               fill = 'pink')
+```
+
+We can also plot the variable on a log-log scale (this is where both x- and y- axes are log transformed). On a log-log scale a power law follows a straight line.
+
+```{r log_power_3}
+# plot a histogram of both x-axis and y-axis log-tranformed df1
+ggplot(mydata,
+       aes(b)) +
+  geom_histogram(bins = 40,
+                 color = 'black',
+                 fill = 'grey',
+                 alpha = 0.6) + 
+  scale_y_log10() +
+  scale_x_log10() +
+  theme_bw() +
+  xlab('log10 b') +
+  ylab('log10 count')
+
+```
+
+
+
+
+
+### Log Normal 
+The problem with using a lin-lin plot (where neither axis is log-transformed, which is overwhelmingly the most common type of visual used in social science research) is that different functions can look very similar. Take a look at this histogram of a log-normally distributed variable on a lin-lin plot.
+
+```{r log_normal_1}
+# plot a histogram
+ggplot(mydata,
+       aes(c)) +
+  geom_histogram(bins = 25,
+                 color = 'black',
+                 fill = 'grey',
+                 alpha = 0.6)
+```
+
+From just the lin-lin plot you might think that it is a power law - but once we log transform the data, we can see that it actually follows a log-normal distribution:
+
+```{r log_normal_2}
+# plot a histogram of the log-transformed variable
+ggplot(mydata,
+       aes(c)) +
+  geom_histogram(bins = 25,
+                 color = 'black',
+                 fill = 'grey',
+                 alpha = 0.6) + 
+  scale_x_log10() + 
+  xlab('log c') + 
+  ylab('count')
+```
+
+### Exponential 
+Now, take a look at an exponentially distributed variable.
+
+```{r log_exp_1}
+# plot a histogram
+ggplot(mydata,
+       aes(d)) +
+  geom_histogram(bins = 25,
+                 color = 'black',
+                 fill = 'grey',
+                 alpha = 0.6)
+```
+
+Once again, it looks like another long-tailed distribution. Now look at it with the x-axis log transformed (lin-log plot).
+
+```{r log_exp_2}
+# plot a histogram of the log-transformed variable
+ggplot(mydata,
+       aes(d)) +
+  geom_histogram(bins = 40,
+                 color = 'black',
+                 fill = 'grey',
+                 alpha = 0.6) + 
+  scale_x_log10() +
+  xlab('log d') + 
+  ylab('count')
+
+```
+
+And, in a log-log plot.
+
+```{r log_exp_3}
+# plot a histogram of the log-transformed df3
+ggplot(mydata,
+       aes(d)) +
+  geom_histogram(bins = 40,
+                 color = 'black',
+                 fill = 'grey',
+                 alpha = 0.6) + 
+  scale_x_log10() +
+  scale_y_log10() +
+  xlab('log d') +
+  ylab('log count')
+```
+
+
+
+
+## Comparing distributions
+
+Log-normal, exponential and power functions all look very similar when plotted on a lin-lin plot. Log-normal and Exponential functions also look very similar when plotted on a log-lin plot. But they look very different when plotted on a log-log plot or a log-lin plot. Equally, power law and log-normal functions look similar on a log-log plot but very different on a lin-log plot. This might all sound a bit confusing - run this code to see how they all compare:
+
+```{r compare-functions}
+# make the data 'long'
+mydata.long = tidyr::gather(mydata)
+
+# lin-lin plots
+ggplot(mydata.long,
+       aes(value)) +
+  geom_histogram(bins = 40,
+                 color = 'black',
+                 fill = 'grey',
+                 alpha = 0.6) + 
+  facet_wrap(~key,
+             scales = 'free') +
+  ggtitle('lin-lin plots')
+
+# log-lin plots
+ggplot(mydata.long,
+       aes(value)) +
+  geom_histogram(bins = 40,
+                 color = 'black',
+                 fill = 'grey',
+                 alpha = 0.6) + 
+  facet_wrap(~key,
+             scales = 'free') +
+  scale_y_continuous(trans = "log10") +
+  ggtitle('log-lin plots')
+
+# log-log plots
+ggplot(mydata.long,
+       aes(value)) +
+  geom_histogram(bins = 40,
+                 color = 'black',
+                 fill = 'grey',
+                 alpha = 0.6) + 
+  facet_wrap(~key,
+             scales = 'free') +
+  scale_y_continuous(trans = "log10") +
+  scale_x_continuous(trans = "log10") +
+  ggtitle('log-log plots')
+
+
+# lin-log plots
+ggplot(mydata.long,
+       aes(value)) +
+  geom_histogram(bins = 40,
+                 color = 'black',
+                 fill = 'grey',
+                 alpha = 0.6) + 
+  facet_wrap(~key,
+             scales = 'free') +
+  scale_x_continuous(trans = "log10") +
+  ggtitle('lin-log plots')
+
+
+```
+
+The key takehome message is that you cannot rely on just one type of transformation to understand your data; you need to use different visualizations to understand its properties and how it should be modelled.
+
+
+
+
+
+## Power laws revisited
+
+Power laws are one of the most commonly occuring distributions, and a key part of this course. df.power.1 contains variables which can be modelled with different power functions. See how they look without any transformation:
+
+```{r power_plot}
+# have a look at the data
+head(df.power, 4)
+
+# plot several power functions on a lin-lin plot
+ggplot(df.power,
+       aes(x,value)) + 
+  geom_line(aes(color = power))
+
+```
+
+This plot is not particularly clear. Plotting a power function on a log-log plot makes it easier to interpret. If we observe a straight line when we plot a variable on a log-log plot then we know that it follows a power function. Different powers create different gradient lines. This is illustrated below (the plot is called a 'rank-frequency' plot - the x value is the rank position of the y values).
+
+```{r power_plot1}
+# plot the power functions on a log-log plot
+ggplot(df.power,
+       aes(x, value)) + 
+  geom_line(aes(color = power)) + 
+  scale_x_continuous(trans = "log10") +
+  scale_y_continuous(trans = "log10")  # adjust trans to 'log' or 'log2' to alter the base value
+
+# And to make the log10 plot look cool using ggplot2:
+ggplot(df.power,
+       aes(x, value)) + 
+  geom_line(aes(color = power)) + 
+  scale_x_log10() +
+  scale_y_log10("log of y value",
+                breaks = scales::trans_breaks("log10",
+                                              function(x) 10^x),
+                labels = scales::trans_format("log10",
+                                              scales::math_format(10^.x))) +
+  annotation_logticks() +
+  xlab('log of rank') + 
+  ggtitle('log-log plot of powers') + 
+  theme(plot.title = element_text(lineheight = 2,
+                                  face = "bold"))
+```
+
+
+## Exponents revisited (briefly)
+
+Often, the difference between the exponential function and a power law is ignored when we are talking everyday about rates of change. BUT! they really differ in terms of their accelaration. Exponents increase far faster than powers.
+
+This is because with a power law function the formula is: f(x) = x^b. The exponent stays constant, whilst the base increases. So if our exponent is 2 and the base ranges from 1 to 10, we get: 1, 4, 9, 16, 25, 36, 49, 64, 81, 100. With an exponential function the formula is: f(x) = b^x. The exponent increases whilst the base stays constant. So if our base is 2 and our exponent x range from 1 to 10 we get: 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024.
+
+You can observe this in the plot below:
+
+```{r exponent_plot1}
+# plot exponent vs. power function:
+ggplot(df.compare,
+       aes(x, value)) + 
+  geom_line(aes(color = function_name)) +
+  theme(legend.title = element_text(colour = "blue",
+                                    size = 10, 
+                                    face = "bold"))
+```
+
+Exponents have some very cool properties. Some of the nice ones are:
+
+x^m * x^n = x^(m+n)
+x^m / x^n = x^(m-n)
+(x^m)^n = x^(m*n)
+x^m * y^m = xy^m
+x^m / y^m = (x/y)^m
+x^0 = 1
+
+
+## Saving your ggplots as .pdf files
+Last but not least... how to save your ggplots as .pdf files so you don't have to copy and paste them manually into other docs. .pdf is good because it prints super high quality for curves and other complex graphics but is very compact storage.
+
+```{r ggplot-save}
+# First, save your plot to an object - give it an expressive name
+plot.variableX = ggplot(mydata,
+                        aes(a)) +
+  geom_histogram(bins = 40,
+                 color = 'black',
+                 fill = 'grey',
+                 alpha = 0.6) + 
+  scale_x_log10() +
+  scale_y_log10() +
+  theme_bw() +
+  xlab('log x') +
+  ylab('log count')
+
+# Second, have a look at the plot to make sure that it's what is expected
+plot.variableX
+ggsave("~/Dropbox/plot.variableX.pdf",
+       plot = plot.variableX,
+       width = 12,
+       height = 12, 
+       units = 'cm')
+
+# THird, work out the font size. Whatever size you set the font to, it will print that size font - but to the size of the image you chose. So, if you set font size to 12 by doing this:
+
+plot.12 = plot.variableX + theme(text = element_text(size = 12))
+
+ggsave("~/Dropbox/plot.variable.12.pdf",
+       plot = plot.12,
+       width = 12,
+       height = 12, 
+       units = 'cm')
+
+# It will be different compared to setting font size to 20, like this:
+
+plot.20 = plot.variableX + theme(text = element_text(size = 20))
+ggsave("~/Dropbox/plot.variable.20.pdf",
+       plot = plot.20,
+       width = 12, # same size plot as before
+       height = 12, 
+       units = 'cm')
+
+# To get really high quality professional looking documents, you don't want to save the image, paste into word and then start resizing it. This will most likely result in weird looking text sizes. You want to save the image (using ggsave) with the right size text and the right size graph. A bit of fiddling about in Word is fine, but too much and your graphs will look very inconsistent. Which might not lose you marks... but is a bit trashy.
+
+
+```
+
+## Saving ggplots as a panel
+Often, you will want to make cool looking panels in which several plots are side-by-side. You can do this in Word, but it is often nice to do it directly in R, and they usually end up looking more professional.
+
+```{r plot-combined}
+# make each plot and store in an object; use expressive names! e.g. call the linear histogram 'p.hist.lin'
+p.hist.lin = ggplot(mydata,
+                    aes(a)) +
+  geom_histogram(bins = 50,
+                 color = 'black',
+                 fill = 'grey',
+                 alpha = 1) +
+  ggtitle('Histogram of a')
+p.hist.lin # have a look at it
+
+p.hist.log = ggplot(mydata, 
+                    aes(a)) + 
+  geom_histogram(bins = 50,
+                 color = 'black',
+                 fill = 'grey',
+                 alpha = 1) + 
+  scale_x_log10() +
+  scale_y_log10() +
+  ggtitle('Histogram of a with logarithmic axes')
+p.hist.log
+
+gridExtra::grid.arrange(p.hist.lin, p.hist.log, ncol = 2) # this lets us have a look at the output (it should be two histograms side by side)
+p.out = gridExtra::arrangeGrob(p.hist.lin, p.hist.log, ncol = 2) # if you're happy with the output, store it in a new object in the workspace
+ggsave("~/Dropbox/out.pdf",
+       plot = p.out, # save the output to your computer - make the width greater than the height to account for the fact there are two plots side by side
+       width = 24,
+       height = 12,
+       units = 'cm')
+
+# you can also have more panels, and then determine the layout by setting the ncol value
+p.pdf.lin = ggplot(mydata,
+                   aes(a)) + 
+  geom_density(color = 'black',
+               fill = 'grey',
+               alpha = 1) +
+  ggtitle('PDF of a')
+p.pdf.lin
+
+gridExtra::grid.arrange(p.hist.lin, 
+                        p.hist.log, 
+                        p.pdf.lin,
+                        ncol = 3)
+
+p.out = gridExtra::arrangeGrob(p.hist.lin, 
+                               p.hist.log, 
+                               p.pdf.lin,
+                               ncol = 3) # if you're happy with it, create a new object in the workspace
+
+ggsave("~/Dropbox/out-3.pdf",
+       plot = p.out, # save the output to your computer - make the width and height the same as it is now a 2 by 2 grid
+       width = 36, # now 3 times the height
+       height = 12,
+       units = 'cm')
+```
+
+
+
+
+*End of Workshop Notes.*
+
+
+

@@ -1,0 +1,462 @@
+---
+title: "Big Data Analytics Week 4"
+author: "Bertie Vidgen"
+date: "02/02/2019"
+output: html_document
+---
+
+# BDA Week 4 notes
+In this lecture we look at autocorrelation and cross-correlation. Autocorrelation is useful for investigating univariate data (data with a single variable). Cross-correlation is useful for investigating bivariate data (data with two variables). Then we look at how to analyse and plot bivariate data with a moving time window and lots of other good stuff involving time.
+
+Set up the R workspace and load the required packages/data.
+
+```{r setup, echo=F, message = F, warning = F}
+#rm(list=ls()) #clear the workspace
+options(scipen = 10) #makes the output more readable by increasing the number of values before scientific notation is used
+
+#if the packages are not installed, then install them. Also, load all required packages:
+fun_check_packages <- function(x){
+  for (i in seq(1,length(x))){
+    if (!x[i] %in% installed.packages()){
+    install.packages(x[i])}
+    library(x[i],character.only=TRUE)}
+}
+packs = c('ggplot2','gridExtra', 'dplyr','tidyr', 'knitr', 'devtools', 'zoo', 'cowplot', 'forecast')
+fun_check_packages(packs); rm(packs, fun_check_packages)
+
+#devtools::install_github("bvidgen/rBDA", force = F)
+library("rBDA")
+
+# load the data:
+load('~/Dropbox/BDA-2019/bda_week4.RData')
+```
+
+
+## Correlation and covariance
+Covariance is a measure of the joint variability of two random variables. The sign of the covariance shows the direction (the 'tendency') in the linear relationship between the variables. The covariance is expressed in the units of the data, and as such the magnitude of the covariance is not always that easy to interpret.
+
+```{r covar}
+# calculate the covariance of x and y
+cov(mydata5$a,
+    mydata5$b,
+    method = 'pearson')
+# In case you're interested, cov(x,y) does this calculation:
+sum((mean(mydata5$a) - mydata5$a) * (mean(mydata5$b) - mydata5$b)) / (nrow(mydata5)-1)
+```
+
+Correlation is a measure of the extent to which two variables have a linear relationship with each other. It is the normalized version of covariance. Covariance is normalized by dividing each value by the product of the standard deviations of the two variables. As a result, correlation is always a value between -1 and 1. This is far easier to interpret than covariance.
+
+```{r corr}
+# calculate the correlation of x and y
+cor(mydata5$a,
+    mydata5$b)
+# In case you're interested, cor(x,y) does this calculation:
+cov(mydata5$a, mydata5$b) / ( sd(mydata5$a) * sd(mydata5$b) )
+```
+
+
+## Cross-correlation
+Cross-correlation is a measure of similarity of two series as a function of the displacement of one relative to the other.
+
+Cross-correlation takes two variables (x and y) and introduces a lag between each pair of values. For instance, if the lag period is 5 then the first x value is compared with the sixth y value, the second x value is compared with the seventh y value, the third x value with the eighth y value and so on. All of the lagged pairs are then correlated.
+
+Cross-correlated values can have 'periodic boundary conditions'. This means that the cross-correlation 'loops round', producing an output that recurs for an infinitely long period of time. For instance, if the vector length is five and the lag period is three then the first x value is compared with the fourth y value, the second x value with the fifth y value, the third x value with the first y value, the fourth x value with the second y value, the fifth x value with the third y value - all the way back to the start, where the first x value is again compared with the fourth y value. Whether you want the cross-correlation to loop round depends upon the data, and whether this is a reasonable assumption - typically, in the social sciences, it is *not*. 
+
+Calculating cross-correlation is pretty simple. The maths in the cross-correlation formula is the exact same as for non-lagged correlation. 
+
+Here are some useful resources to get more info on cross-correlation:
+https://ned.ipac.caltech.edu/level5/Sept01/Peterson2/Peter4.html#Figure%2022
+https://www.youtube.com/watch?v=RO8s1TrElEw #### the examples are in matlab, but they are still useful to look at.
+http://paulbourke.net/miscellaneous/correlate/
+
+FYI a plot of data in a time sequence is called a 'run chart' or 'run sequence plot'. This is a very common type of plot for time analysis. For more info on this type of plot see here:
+https://en.wikipedia.org/wiki/Run_chart
+http://www.itl.nist.gov/div898/handbook/eda/section3/runseqpl.htm
+
+
+### Worked cross-correlation example
+
+To see whether there is a relationship between x and y in df.cov, make a scatter plot. This is a useful starting point - but it doesn't explicitly model time and so may be missing out on some important patterns.
+
+```{r cross_cor_1}
+ggplot(mydata5, 
+       aes(a, b)) + 
+  geom_point(color = 'blue',
+             size = 0.5) +
+  ggtitle('b vs a')
+```
+
+Now, plot the two variables in df.cov against time.
+
+```{r cross_cor_2}
+head(mydata5, 5) # quick look at the data
+
+ggplot() + # as with last week, plots which show many different variables are best built up as layers - each graphic shows a separate variable, geometry (here, lines) and colors/size
+  geom_line(data = mydata5,
+            aes(x = time,
+                y = a),
+            colour = 'dark red',
+            size = 0.2) +
+  geom_line(data = mydata5,
+            aes(x = time,
+                y = b),
+            colour = 'orange',
+            size = 0.2) + # this means that we can plot several lines at once
+  ylab('Values') + 
+  xlab('Time') +
+  ggtitle('a and b over time')
+```
+
+Quantify the relationship between the variables using correlation and a lm model.
+
+```{r cross_cor_4}
+# calculate the correlation:
+cor(mydata5$a,
+    mydata5$b)
+
+# inspect R squared for linear regression model, using x to predict y
+summary(lm(mydata5$b ~ mydata5$a))$r.squared # super low (we can explain almost none of the variance in y using x)
+
+# inspect the p value of the linear regression model:
+anova(lm(mydata5$b ~ mydata5$a))$'Pr(>F)'[1] # p-value greater than 0.05 - indicating that the model is not statistically significant (which is not surprising given how low the r squared is)
+```
+
+So far, it looks like there is no relationship between a and b. Now, cross-correlate the values. 
+
+First, plot the cross-correlation using the in-built R function.
+
+```{r cross_cor_5}
+stats::ccf(mydata5$a,
+           mydata5$b,
+           plot = T,
+           lag.max = 150)
+?ccf
+```
+
+Now, the Base R CCF (and ACF) functions are not actually that great - they are useful for just eyeballing data, but the way they calculate values is (a) opaque (it involves a call to 'C', thereby hiding what actually happens) (b) a bit unusual (the denominator in the formula is atypical), and (c) does not have a periodic boundary feature. This means that you cannot wrap values round; which is an issue if you are analysing a repeating function. 
+
+So, we have made our own function: cor_fun(x,y,lag.max=200,wrap=T). The function produces an object which contains all of the information that we want - but it doesn't plot the results. For that, we have made a separate plotting function.
+
+The only downside to our function is that, because it doesn't call C, it is not as fast as the inbuilt R function.
+
+```{r cross_cor_9}
+# Use the new functions
+ccf.out = rBDA::cor_fun(x = mydata5$a, # we are lagging b against a
+                        y = mydata5$b, 
+                        lag.max = 200,
+                        wrap = F,
+                        level = 'sample') # Please note that this takes a bit longer to run than the Base R function (especially when wrap = T)
+
+# we can extract some useful info from ccf.out:
+ccf.out$fit_best # best fitting value - this tells us the optimum lag is 100: we keep a in the same time period and move values for b 'forward' 100 time intervals (which, in this example, is 100 days). The values are then very highly correlated. In this case (which is admittedly very synthetic!) the analysis suggests that the impact of a on b only manifests after 100 days.
+
+head(ccf.out$cor, 20) # cross-correlation values
+head(ccf.out$lag, 20) # vector of lags
+head(ccf.out$x, 20) # vector of x variable
+head(ccf.out$y, 20) # vector of y variable
+
+ccf.out$wrap #record of wrap
+ccf.out$type # record of CCF or ACF
+ccf.out$level #record of type of correlation used
+ccf.out$conf.int #confidence interval value - this is only for samples
+```
+
+Plot the results - this mimics the Base R plotting. You have to pass to the cor_plot() function the output of the cor_fun() function.
+
+```{r cross_cor_10}
+rBDA::cor_plot(ccf.out)
+# NOTE - the dotted red line is a confidence interval computed on the correlation of the original x,y variables - it expresses the uncertainty of the recorded correlation.  It is useful here because it gives an idea of which cross-correlations are meaningful (those which fall outside of the red lines). It is only calculated and plotted if you use level = 'sample' with the cor_fun() function (see above).
+```
+
+Three things to note:
+1. If you don't set lag.max then the function automatically decides a lag.max value (max 200)
+2. If you don't set wrap to 'T' or 'F' then the function automatically chooses wrap=F
+3. If you don't set level then it uses sample level correlation
+
+We can now make scatter plots of the cross-correlations.
+
+```{r cross_cor_8}
+ccf.out$fit_best # use the fit_best value as a guide for what to plot
+
+rBDA::cor_scatter(mydata5$a,# we keep a where it is
+                  mydata5$b, # we move b forward by the stipulated number of lags
+                  lags = list(99, 100, 101), # we can see that 100 is the optimum value
+                  period = 'days', # this isjust for the title you can adjust these optional params to personalize the graphs
+                  x.lab = 'a',
+                  y.lab = 'b')
+```
+
+In summary, there are three functions in the package 'rBDA' to do cross-correlations:
+
+cor_fun()
+  calculates the cross-correlation lags
+cor_plot()
+  plots the cross-correlation lags over time
+cor_scatter()
+  plots multiple scatter plots with different lags 
+
+We are still working on the code, so please be aware that there may be some small hiccups if you use inputs/data that we haven't tested for. If you encounter any problems - or any ways you think the code/documentation can be improved - then please email bertievidgen@gmail.com with your issue (this would be really helpful for us!). And if you do get really stuck then just use the Base R function.
+
+
+
+## Autocorrelation
+Autocorrelation, also known as serial correlation, is the correlation of a signal with itself at different points in time. Informally, it is the similarity between observations as a function of the time lag between them [Thanks again, Wikipedia...].
+
+Put simply - autocorrelation is where you correlate a single variable (x) with itself, rather than with another variable. Again, you do this by lagging the values. So, for instance, if you use a lag of 2 then the first x value is correlated with the third x value, the second x value with the fourth x value, the third x value with the fifth x value and so on.
+
+Calculating autocorrelation is very simple. The process is the exact same as with normal correlation: take the covariance of X (comparing the values for X over time period A and X over time period B) and divide by the standard deviation of x over time period A multiplied by the standard deviation of x over time period B. Now, for this to work, time period A must contain the same number of values as time period B. If there are periodic boundary conditions then this is not a problem - as with cross-correlation, the values keep looping round. Usually in the social sciences we do NOT use periodic boundary conditions, so we have to make sure the number of values matches up for both time periods. 
+
+Let's say I have a variable (x) with recorded values for 100 time periods, and I want to compare x with itself at a time lag of 5. I need to take the 1st to 95th values of x and compare them with the 6th to 100th values. As such, the number of pairs of x values that we correlate will always be less than the length of x. And, importantly, the number of observations used in the correlation will decrease as the lag increases. For instance, if I want to compare x with itself at a time lag of 60 then I would take the first to 40th values of x and compare them with the 61st to 100th values -> even though there are 100 hundred x values in total, for this lag I only calculate autocorrelation on 40 pairs.
+
+Here are some useful resources with more info on autocorrelation:
+  https://en.wikipedia.org/wiki/Autocorrelation
+  https://www.youtube.com/watch?v=QB89v1EHuP0 
+  http://nthturn.com/2015/04/04/autocorrelation-a-brief-overview-using-r/
+* Please note that if you Google'autocorrelation' you will come across alot of material on autocorrelated errors. Whilst this uses the same calculation it is very different - autocorrelated errors is a way analysing the residual errors in a regression model.
+
+### Some key assumptions of autocorrelation:
+1. the x and y variables must be either ratio or interval (i.e. they are not categorical variables and actually can be correlated).
+2. the x variable must be evenly spaced.
+
+
+### Walkthrough for autocorrelation
+First, plot a sine curve. A sine curve is a useful starting point as it is a perfectly self-repeating pattern.
+
+```{r autocorr_1}
+# plot sine curve
+ggplot(mydata6,
+       aes(time, y)) +
+  geom_line(color = 'red',
+            size = 2) +
+  ggtitle('Plot of Sine Curve')
+```
+
+Plot the autocorrelated values using the base R function acf()
+
+```{r autocorr_2}
+stats::acf(mydata6$y,
+           lag.max = 1000,
+           plot = T,
+           type = 'correlation')
+```
+
+You may have noticed that the ACF plot decays over time - which shouldn't happen when self-correlating a perfectly repeating function (like here with a Sine curve). Now, ready yourself for this thrilling explanation, ahem:
+The decay in the ACF plot happens because the Base R package calls C, and the C calculation has an unusual denominator: the number of values (n). This normalizes the output (so the range is between -1 and 1), but means that as the size of the lag increases the correlation will be under-estimated (because as the size of the lag increases there are fewer values used in the calculation - but the denominator stays constant as it is equal to total n). If you're feeling keen, there is a bit of discussion about it here:  https://stats.stackexchange.com/questions/254227/manual-calculation-of-acf-of-a-time-series-in-r-close-but-not-quite
+
+The function that we introduced in the cross-correlation section (cor_fun() in the 'rBDA' package) can be used here to calculate the autocorrelation. No decay is produced with this function. 
+
+First, calculate the auto-correlation values using cor_fun() 
+
+```{r autocorr_3}
+acf.out = rBDA::cor_fun(mydata6$y,
+                        lag.max = 1000) # note that you only need to pass ONE variable to cor_fun for autocorrelation rather than two (which is what we did when we used cor_fun to calculate cross-correlation) - cor_fun() knows when you pass just one variable to calculate the autocorrelation
+```
+
+Extract useful information from the acf.out object:
+
+```{r autocorr_4}
+acf.out$fit_best # lag that gives the highest autocorrelation + the recorded autocorrelation value (excluding a lag of 0)
+
+head(acf.out$cor, 10) #the cross-correlation values
+head(acf.out$lag, 10) # vector of lags
+head(acf.out$x, 10) # x variable that we inputted
+
+acf.out$wrap # are the values 'wrapped around'? Are there periodic boundary conditions?
+acf.out$level # what level ('sample' or 'population') was the correlation calculated for? 
+acf.out$type # is it an ACF or CCF function?
+```
+
+We can plot the output of the cor_fun function using cor_plot to get an ACF Plot
+
+```{r autocorr_5}
+rBDA::cor_plot(acf.out) # note that it doesn't decay
+rBDA::cor_plot(acf.out,
+               graph = 'line') # the other option (the default) is graph = 'bar'
+```
+
+You will note that with an ACF plot, a lag of 0 always produces an ACF of 1. If there is no lag then you are just correlating y with itself (which will always be correlation of 1)
+
+Now, lets look at some data that is more like real world data. Plot the y variable in 'df.acf' over time
+
+```{r autocorr_6}
+ggplot(mydata7,
+       aes(time, y)) +
+  geom_line(color = 'blue',
+            size = 0.5)
+```
+
+Plot the autocorrelation of the variable.
+
+```{r autocorr_7}
+acf.out.2 = rBDA::cor_fun(mydata7$y)
+head(acf.out.2$cor, 10)
+rBDA::cor_plot(acf.out.2)
+```
+
+From the ACF plot we can see that the data contains a periodically repeating function - every 6 or 7 values there is a fairly regular pattern, even though overall the data looks quite messy and has no obvious pattern. We can plot each of these intervals separately to see them in more detail:
+
+```{r autocorr_10}
+NumIntervals = 10 # how many separate intervals we want to plot (anything more than 10 starts to look really messy)
+
+Interval = 7 # estimated number of time units each interval of the variable lasts for (7 is common for if the variable 'time' measures days as there are 7 days in a week - or 24 if 'time' measures hours etc.). With our data the units are days, so 7 makes sense (and is backed up by our ACF plot)
+Len = Interval*NumIntervals # Len is the total amount of values that we will plot - we want this to be something manageable and which looks nice on the plot
+
+# create a new df which is smaller than the df 'df.acf' - we can't plot every week on there as it will look too crowded (check it yourself to see)
+mydata.short = mydata7[1:Len,] # For now, we are taking the first 70 values
+
+# Create two new variables.
+  # The first variable is the interval that each of the time values is assigned to (i.e. beacuse we have an interval of 7 then the first 7 values are in the first time interval, the 8th to 14th values are in the second interval and so on)
+  # The second variable is time.1 which is a variable for the plotting
+mydata.short = mydata.short %>%
+  dplyr::mutate(interval = rep(1: NumIntervals, each = Interval)) %>%
+  dplyr::mutate(interval = as.factor(interval)) %>%
+  dplyr::mutate(time.1 = rep(1:Interval, times = NumIntervals))
+
+head(mydata.short, 5)
+  # time is the original time values
+  # y is the original data values
+  # interval tells us what interval each value has been assigned to
+  # time.1 tells us what day of the interval the value falls on. It is important for plotting
+
+```
+
+```{r autocorr_11}
+# Plot the results
+ggplot(mydata.short,
+       aes(x = time.1,
+           y = y,
+           group = interval,
+           colour = interval)) +
+  geom_line() +
+  xlab('days') + 
+  ggtitle('Time interval of one week') +
+  theme(legend.position = 'none') # removes the legend from the plot
+```
+
+We can also calculate an average line (on the *entire* dataset) and plot it too
+
+```{r autocorr_12}
+# Calculate the average line
+# We need to the interval that we have think captures the periodic pattern in the data into the dataframe
+head(mydata7, 4)
+mydata7 = mydata7 %>%
+  dplyr::mutate(day = rep(seq(1, Interval),
+                          nrow(mydata7) / Interval ))
+head(mydata7, 4) # we now have a new variable 
+
+average.values = stats::aggregate(mydata7$y, # thise is a very useful function to learn!
+                   by = list(mydata7$day),
+                   FUN = mean);
+colnames(average.values) = c('group', 'ave')
+
+# Second, plot both the ten 7-day perios and the average value on one df
+ggplot() +
+  geom_line(data = mydata.short,
+            aes(x = time.1,
+                y = y,
+                group = interval,
+                colour = interval)) +
+  xlab('days') + 
+  ggtitle('Time interval of one week') +
+  geom_line(data = average.values,
+            aes(x = group,
+                y = ave), 
+            color = 'black',
+            size = 2) +
+  theme(legend.position = 'none')
+```
+
+## Moving time window
+
+A moving time window smooths out short-term fluctuations in data to make the underlying long term trend be seen. It is a very effective way of removing noise from a data series. For more info see the Wikipedia page - https://en.wikipedia.org/wiki/Moving_average
+
+The time window works by averaging the values over a fixed period of time - it is often a good idea to use a meaningful time period, such as a week (7 days), a month (30 days) or a quarter (90 days). So, for example, if you use a 7 day period then the value for e.g. 20th November 2017 is actually an average of 7 days, rather the actual value for the 20th November.
+
+```{r time-window-1}
+# first, replot the values in mydata7 from earlier
+ggplot() +
+  geom_line(data = mydata7,
+       aes(time, y),
+           color = 'black') # super messy
+```
+
+Calculate and plot time window lags
+
+```{r time-window-2}
+# calculate time window values
+smooth.7 = data.frame(time = mydata7$time,
+                      y.7 = forecast::ma(x = mydata7$y, order = 7)) # the number of data points to smooth over (here, 7 means 7 days)
+# add to the plot
+ggplot() +
+  geom_line(data = mydata7,
+       aes(time, y),
+           color = 'grey') + # the original values in grey so they are less visible
+  geom_line(data = smooth.7,
+            aes(time, y.7),
+            color = 'black') # the smoothed values in black
+# we can keep repeating this, introducing more smoothed windows
+```
+
+
+*End of workshop notes*
+
+
+
+## Some extra stuff
+
+### Time series data in R
+Most of the data that we have used in this class has been a dataframe consisting of a Date variable ('time') and then a variable that contains a sequence of values ('x' or 'y'). 
+
+For instance:
+
+```{r dates_1}
+class(mydata7$time) #Date
+class(mydata7$y) #numeric
+```
+
+Storing times and dates as date variables is useful as R recognises that they are dates and should be formatted as such. Another way of analysing time series data is to use the ts() command:
+
+```{r dates_2}
+x = rnorm(1000)
+head(x, 10) #inspect variable
+class(x)
+plot(x, type = 'l')
+```
+
+Transform x into a timeseries variable:
+
+```{r dates_3}
+x.ts = stats::ts(x, start=c(1900, 1), frequency=12) #see ?ts for more info about the parameters
+  # values are saved with a matching date var, starting at 1900 and moving forward month by month (set by the 'frequency' param)
+
+all(head(x.ts) == head(x)) #TRUE
+class(x.ts)
+plot(x.ts, type = 'l') #line plot with Time added onto the bottom
+```
+
+Please note that all of the code in this workshop does not require for data to be transformed into a timeseries using ts().
+
+### A note on UNIX time
+Very very finally... You may encounter variables which you want to convert into Unix time (if you are unfamiliar with Unix then see the Wikipedia page - https://en.wikipedia.org/wiki/Unix_time). Here are some commands for converting dates into Unix values. If you need to do this for many many values then use the lubridate package to speed it up.
+
+```{r extra}
+# Convert a value into a POSIX variable:
+a = as.POSIXct("2013-09-16 2:13:46 EST")
+class(a) #"POSIXct"
+
+# Convert POSIX variable into a Unix value:
+a = as.numeric(a) #Unix #1379290426
+class(a) #numeric
+
+as.numeric(as.POSIXct("2013-09-16 2:13:46 EST"))
+as.numeric(as.POSIXct("2013-09-16", format="%Y-%m-%d"))
+
+# Convert Unix back to a date/time variable:
+as.POSIXct(as.numeric(as.character(a)),origin="1970-01-01")
+
+```
+
+*The ACTUAL very end of the Workshop notes. And the course. Well done!*
+
+
+

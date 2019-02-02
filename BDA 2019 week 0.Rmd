@@ -1,0 +1,380 @@
+---
+title: "Big Data Analytics Week 0"
+author: "Bertie Vidgen"
+date: "02/02/2019"
+output:
+  html_document: default
+---
+ 
+# BDA Week 0 notes
+
+## Overview
+This introductory lecture is purely optional and does not contain anything that you will be assessed on. It is intended as a primer for the course and so that we can handle any technical issues before we get into the content. If you have any questions please just ask now or email me at bertievidgen@gmail.com
+
+Today we will look at:
+- R, RStudio and R Packages
+- knitr / RMarkdown
+- ggplot2
+- the 'rBDA' package
+- Some basic stats
+- Google and Stack Overflow
+- Knitting the code into an html document
+
+We anticipate this taking under an hour, which will leave plenty of time to troubleshoot any technical problems.
+
+### Setup
+
+Every week's code has this setup chunk - it contains all the packages, data and other options for the entire script. 
+
+```{r setup}
+#rm(list=ls()) # clear the workspace
+options(scipen = 10) # makes the output more readable by increasing the number of values before scientific notation is used.
+
+fun_check_packages <- function(x){
+  for (i in seq(1,length(x))){
+    if (!x[i] %in% installed.packages()){
+    install.packages(x[i], dependencies = T)}
+    library(x[i],character.only=TRUE)}
+}
+packs = c('dplyr','ggplot2', 'knitr', 'ggthemes','devtools', 'gridExtra')
+fun_check_packages(packs); rm(packs, fun_check_packages)
+
+gc()
+```
+
+
+
+### R, RStudio and R Packages
+R is a free statistical coding language. If you're unfamiliar with it, a fantastic overview is available here - https://cran.r-project.org/doc/contrib/Paradis-rdebuts_en.pdf
+
+RStudio is an Integrated Development Environment (IDE) for R. It is what we will use for this course as it is way more accessible than R - it's a bit like Jupyter notebooks for Python.
+
+R packages are downloadable packages which contain extra functions beyond those available in the Base r installation. Most of the well-used R packages we use are available on CRAN. These can be downloaded and loaded easily:
+
+```{r package-1}
+#install.packages('dplyr') #install package
+library(dplyr) #load package
+```
+
+Other packages that we use are not available in CRAN but can be collected from Github using devtools. First, you need to install devtools - install.packages('devtools') - and then you can install packages from users' accounts.
+
+```{r package-2}
+devtools::install_github("bvidgen/rBDA")
+library(rBDA) #you can use library with a github package just as you would with a CRAN pakage
+```
+
+You can then use the functions in this package, the same as you would with packages from CRAN.
+
+One risk in loading many packages at once is that they will have functions with the same names. Obviously, this is not ideal as R won't know which function you are trying to use. The issue can be resolved by using the :: syntax
+
+```{r package-3}
+df = data.frame('x' = seq(1,100))
+nrow(dplyr::distinct(df))
+
+# you can also use the :: to invoke base R functions:
+base::nrow(base::unique(df))
+```
+
+If you are using a function and you can't remember what input params or optional arguments it takes you can check by using the ? syntax:
+
+```{r package-4}
+?mean
+?dplyr::distinct
+```
+
+
+
+### Knitr and R Markdown
+Knitr is a great way of making nicely formatted documents and also for breaking up code when it is written out (this is the main reason we are using it). For more info see here - https://yihui.name/knitr/
+
+You can run code as you would normally - by highlighting the code and clicking 'cmd' + 'return'. To run all of the code in a chunk just click into the chunk and click 'cmd', 'shift' and 'return'.
+
+One of the useful things about knitting your code into an html is that you can control the output. If you want to have all of the input and the output in your knitted document then leave it as it is:
+
+```{r knit-1}
+x = 123
+print(x)
+```
+
+With warnings:
+
+```{r knit-2}
+print(log(-1))
+```
+
+Without warnings (this is quite useful with graphics):
+
+```{r knit-3, warning = FALSE}
+print(log(-1))
+```
+
+And to hide everything (but still have the objects created in the environment):
+
+```{r knit-5, include = FALSE}
+x = 456
+for (i in 1:10){
+  print(i)}
+print(x)
+```
+
+
+### ggplot2
+ggplot2 is the main graphics package we will use during the course. It was created by Hadley Wickham who is responsible for what is called the 'tidyverse' - an awesome suite of R packages for data science https://www.tidyverse.org
+
+ggplot2 is based on the 'Grammar of Graphics' and lets you make nice looking graphs easily (if you've taken Info Viz then you'll be familiar with this). Most features of graphs can be customized.
+
+Here's a walkthrough for building up a ggplot2 graph - use this as resource for the assignments.
+
+With ggplot2 you want to create layers of graphics, this is the 'grammar of graphics', as described here: https://byrneslab.net/classes/biol607/readings/wickham_layered-grammar.pdf - we will touch on this more in the future weeks.
+
+```{r ggplot1, echo=T}
+# generate some test data
+df = data.frame(x = seq(1,100, by = 7),
+                y = seq(1,100, by = 7))
+
+ggplot2::ggplot(df, aes(x,y))
+# the first param calls the dataframe - here it is 'df' as that is the name of our dataframe
+# the second amd third params are in aes() which stands for 'aesthetic' - these are the variables you want to plot
+
+# Running the line above makes an empty graph. We need to add in the geometry we want to plot
+ggplot(df, aes(x,y)) +
+  geom_line()
+
+# we could also plot other geometries
+ggplot(df, aes(x,y)) +
+  geom_point()
+
+# or several at once
+ggplot(df, aes(x,y)) +
+  geom_line() +
+  geom_point()
+
+# we can adjust many params for each type of geometry, such as color and size
+ggplot(df, aes(x,y)) + 
+  geom_line(color = 'red', size = 10) + 
+  geom_point(color = 'yellow', size = 1) # tho, obviously, never actually make a graph this ugly...
+
+```
+
+It is possible to plot two graphs at the same time (using data from a single dataframe) using (i) facet wrap and (ii) a third factor variable
+
+```{r ggplot2, echo=T}
+# genearate data
+df1 = data.frame(x = rep(seq(1,100),2), 
+                   y = c(seq(1,100),seq(100,1)),
+                 z = c(rep('a', 100), rep('b', 100)))
+
+# plot using facet wrap
+ggplot(df1,
+       aes(x,y)) +
+  facet_wrap(~z) +
+  geom_line()
+    # facet wrap splits the data into separate graphs based on a third variable in the dataframe (here, 'z')
+    # it is incredibly useful for subsetting by a variable and producing many graphs at once
+
+# Alternatively, we can invoke a third variable as a factor and plot the two lines on one graph
+ggplot(df1,
+       aes(x,y, color = z)) +
+  geom_line()
+```
+
+There's lots of options to adjust your plots in ggplot2
+
+```{r ggplot3, echo=T}
+# we can adjust the axis scales on ggplot graphs easily using xlim() and ylim()
+ggplot(df,
+       aes(x,y)) + 
+  geom_line(color = 'blue',
+            size = 1) +
+  xlim(0, 1000) + 
+  ylim(0,250) #obviously, this actually looks quite stupid...
+
+# and we can adjust the x and y axis labels and add a title
+ggplot(df,
+       aes(x,y)) + 
+  geom_line(color = 'blue',
+            size = 1) +
+  xlab('some variable') +
+  ylab('another variable') +
+  ggtitle('a plot to show how to use ggplot2')
+      # As a warning - often ggplot titles look a bit odd when you paste the graphic elsewhere, such as into word. Sometimes it's better to not put a title onto the graph itself and just write one out in the text.
+
+# annotate the graph
+ggplot(df,
+       aes(x,y)) + 
+  geom_line(color = 'blue',
+            size = 1) +
+  ggtitle('a plot to show how to use ggplot2') +
+  annotate("text",
+           x = 25, 
+           y = 90, 
+           label = "Something insightful", 
+           size  = 8)
+
+```
+
+To make your graphics look nicer, and if you're super pernickety, you can manually adjust lots of params...
+
+```{r ggplot4, echo=T}
+ggplot(df,
+       aes(x,y)) + 
+  geom_line(color = 'blue',
+            size = 1) +
+  ggtitle('a plot showing how to use ggplot2') +
+  xlab('some variable') +
+  ylab('another variable') +
+  theme(title = element_text(size = 16,
+                             face='bold'), # adjust the plot title
+                 axis.text.y = element_blank(), # remove any values from the y axis
+                 axis.text.x = element_text(color = 'black'), # change the x axis values text 
+                 axis.title.x = element_text(size = 12,
+                                             color = 'black',
+                                             face = 'bold'), # change the x axis title
+                 panel.grid.major = element_blank(), 
+                 panel.grid.minor = element_blank(),
+                 panel.border = element_blank(),
+                 panel.background = element_blank()
+                 )
+```
+
+Or you can use the cowplot package (highly recommended):
+
+```{r ggplot5, echo=T}
+#install.packages('cowplot')
+library(cowplot)
+
+ggplot(df,
+       aes(x,y)) + 
+  geom_line(color = 'blue',
+            size = 1) +
+  ggtitle('Cowplot is great') +
+  annotate("text",
+           x = 25,
+           y = 90,
+           label = "Something insightful",
+           size  = 8)
+
+```
+
+And to save your output
+
+```{r ggplot6, echo = T}
+plot.out = ggplot(df, aes(x,y)) + 
+  geom_line(color = 'blue',
+            size = 1) +
+  ggtitle('Cowplot is great') +
+  annotate("text",
+           x = 25,
+           y = 90, 
+           label = "Something insightful", 
+           size  = 8)
+
+plot.out
+
+ggsave("~/Dropbox/plot.out.pdf", 
+       plot = plot.out,
+       width = 20, 
+       height = 10,
+       units = 'cm') # adjust these values to produce a graph which is the right height / width
+```
+
+If there is something specific you want to do with ggplot2 then Google it - someone has most likely already tried to do it and posted about it on Stack Overflow.
+
+Some people have also made extension packages for ggplot2. If you want to jazz up your plots you can use the ggthemes package (which we've already loaded). This lets you use some great (but also some horrific) looking themes in your graphs
+
+```{r ggthemes}
+df3 = data.frame(UK = rep(seq(1,100),2), 
+                 US = c(seq(1,100),
+                        rep(seq(1,20),5)),
+                 happiness = c(rep('UK', 100),
+                               rep('US',100)))
+
+ggplot(df3, 
+       aes(UK, US, 
+           color = happiness)) + 
+  geom_line() + 
+  ggthemes::theme_fivethirtyeight()
+ggplot(df3, 
+       aes(UK, US, 
+           color = happiness)) + 
+  geom_line() + 
+  ggthemes::theme_wsj()
+ggplot(df3, 
+       aes(UK, US, 
+           color = happiness)) + 
+  geom_line() + 
+  ggthemes::theme_excel() # but don't actually use this as it looks like trash
+```
+
+
+
+### the rBDA package
+rBDA is a package that we have specially created for the BDA class. There are four main things it enables you to do - (i) plot error bars on binned continuous data, (ii) calculate and plot autocorrelated and crosscorrelated values robustly, (iii) make panelled scatterplots and (iv) calculate values with a moving time window. There are also some other functions which you can access but they aren't terribly exciting (like sd_pop which calculates population level standard deviation)
+
+All we want to do today is just check that the functions are working. Run the commands below and after each one check the output. So long as you get *something* then it is probably working fine.
+
+```{r BDA}
+# generate test data
+set.seed(1)
+df = data.frame(x = seq(1, 100),
+                y = rnorm(100,50,10))
+
+# generate some more test data
+set.seed(101)
+x = rnorm(1000, mean=10, sd=10)
+y = x + rnorm(1000 ,mean=1, sd=5)
+y = c(y[901:1000], y[1:900]) 
+df.test2 = data.frame(x, y); rm(x,y)
+
+
+# 1. plot error bars
+rBDA::error_bars(df)
+
+# 2. CCF
+# NOTE: this output will not 'knit' (see below), so comment out these three lines when knitting the document
+out = rBDA::cor_fun(df$x, df$y, lag.max = 10)
+out$fit_best; out$wrap; out$conf.int
+rBDA::cor_plot(out)
+
+# 3. plot multiple scatter plots at once
+rBDA::cor_scatter(df.test2$x,
+                  df.test2$y,
+                  list(50,100,250,500))
+
+```
+
+### Some basic stats
+
+This course is pretty technical in places. Some things you want to have a good grasp of (all of which were covered in the term 1 stats course) are:
+-covariance
+-correlation
+-logarithms
+-linear regression (just simple, i.e. using one predictor)
+-types of variables (i.e. ratio/interval)
+
+
+### Google is your friend
+
+Finally, just a comment on Google - learning how to Google effectively for advice and code is a real skill. Most problems you encounter will have been already tackled by someone else, and they will have posted it on Stack Overflow or publicly accessible email lists. Use these as much as you can to solve problems on your own. Though, that said, please do reach out if you ever have a problem as we are always on hand to help with issues.
+
+A couple of tips for searching - be as precise as you can, use the technica/established terms where possible, and try to make your query broader than just your specific issue (i.e. don't write 'split a vector into 7 subsections of width 30' but write 'split a vector into n equally sized subsections')
+
+
+### Knit the code
+Finally, let's make an html document!
+
+You can make an html document by using the 'Knit' command at the top of the RStudio interface, just below the script tabs. Knitting to html is quite straightforward. On the drop down next to 'Knit' set it to 'Knit to HTML'. The html is saved into the directory containing your .Rmd file. NOTE: make sure that you've changed the filepath on line 
+
+Knitting to Word is straightforward, though it does take a while. Just select 'Knit to Word' from the drop down menu.
+
+Knitting to pdf is a bit more difficult. You need a TeX (as in LaTeX) installation on your computer. TeX is available here - http://tug.org/mactex/ I would *not* recommend this unless you are really keen on making LaTeX files or are already experienced in using R. If you really want a pdf then knit to word and export as a pdf from there.
+
+
+
+
+*End of workshop notes*
+
+
+
+
+

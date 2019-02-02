@@ -1,0 +1,129 @@
+---
+title: "Big Data Analytics Week 1"
+author: "Bertie Vidgen"
+date: "02/02/2019"
+output: html_document
+---
+ 
+# BDA Week 1 notes
+
+This week we look at how to quantify the spread of a distribution using the Gini coefficient and shannon entropy. We will also plot a histogram and calculating the mode.
+
+Set up the R workspace and load the required packages/data.
+
+```{r setup, echo=F, warning=F, message=F}
+# rm(list=ls()) #clear the workspace
+options(scipen = 10) #makes the output more readable by increasing the number of values before scientific notation is used.
+
+fun_check_packages <- function(x){
+  for (i in seq(1,length(x))){
+    if (!x[i] %in% installed.packages()){
+    install.packages(x[i])}
+    library(x[i],character.only=TRUE)}
+}
+packs = c('ineq','ggplot2', 'entropy', 'cowplot')
+fun_check_packages(packs); rm(packs)
+
+data(mtcars) #load some test data (the mtcars dataset comes with every R installation)
+```
+
+### Data
+In the code below, we calculate the gini coefficient and then plot the lorenz curve for the 'mtcars' dataset. This comes with every installation of R. You can apply the code to the data you've collected from Wikipedia.
+
+We are going to look at the 'disp' variable in mtcars. 'disp' stands for displacement. You can find out about the other variables by typing '?mtcars' into the command line.
+
+### Histogram
+First, make a histogram to show the distribution of the variable:
+
+```{r hist, echo = F}
+ggplot(mtcars,
+       aes(disp)) +
+  geom_histogram(bins = 10)
+```
+
+### Mode
+Second, calculate the mode of the variable, and how many values are equal to it.
+Unfortunately, R does not have an in-built mode function, so we have to create one:
+
+```{r mode, echo = F}
+getMode <- function(x, na.rm = FALSE) {
+  if(na.rm){
+    x = x[!is.na(x)]
+  }
+  ux <- unique(x)
+  return(ux[which.max(tabulate(match(x, ux)))])
+} # from https://stackoverflow.com/questions/2547402/is-there-a-built-in-function-for-finding-the-mode
+
+getMode(mtcars$disp) #mode
+
+# How many of the values equal the mode?
+numMode = length(mtcars$disp[mtcars$disp == getMode(mtcars$disp)])
+print(numMode)
+```
+
+### Gini coefficient
+Third, calculate the gini coefficient and plot the Lorenz curve.
+
+The Gini coefficient is a measure of statistical dispersion. It can be applied to any variable to see how it is distributed - most famously, it has been used to measure income distribution. A score of '1' indicates perfect inequality. In the case of income, this means that one person has all the income and no-one else has any. A score of '0' indicates perfect equality. In the case of income, this means that every person has the exact same income.
+
+The Gini coefficient is the area between the line of 'perfect equality' (where the gini coefficient is 0; the distribution of the variable is uniform, i.e. totally equal) and the 'lorenz curve' (which is the actual distribution of values across the population).
+
+```{r gini, echo = F}
+ineq::ineq(mtcars$disp,
+           type='Gini') #calculate the gini coefficient for the variable disp
+plot(ineq::Lc(mtcars$disp,
+              n = rep(1,length(mtcars$disp))),
+     col = 'red',
+     lwd = 2) #plot
+
+# you can also plot the lorenz curve using ggplot2
+Distr1 = ineq::Lc(mtcars$disp,
+                   n = rep(1,length(mtcars$disp)),
+                   plot =F)
+df = data.frame(Distr1[1], Distr1[2])
+
+ggplot(df,
+       aes(p, L)) +
+  geom_line(color = 'red') +
+  scale_x_continuous(name="% population",
+                     limits=c(0,1)) + 
+  scale_y_continuous(name="% variable",
+                     limits=c(0,1)) +
+  geom_segment(aes(x = 0,
+                   y = 0,
+                   xend = 1,
+                   yend = 1)) 
+# based on: https://stackoverflow.com/questions/22679493/how-to-plot-a-nice-lorenz-curve-for-factors-in-r-ggplot
+  
+  
+```
+
+If you find the Gini coefficient particularly interesting, then have a look at some additional material here: https://www.r-bloggers.com/sampling-distribution-of-gini-coefficient/
+
+
+### Shannon entropy
+Entropy is a measure of disorder within a distribution; higher entropy means that a system is more disordered and therefore harder to predict. If you want a refresher, with a nice worked through example, I found a great Youtube video here - https://www.youtube.com/watch?v=ErfnhcEV1O8&list=LLpnMwTVTiriukuWO3AenRSA&index=2&t=333s Only the first few minutes are relevant for understanding Shannon entropy (they guy then goes onto discuss cross-entropy) but it really is worth a look.
+
+```{r shannon-entropy, echo = F}
+# take a single variable and get a frequency table
+hp.freq = table(mtcars$hp)
+
+# calculate actual entropy
+ent.calc = entropy::entropy.empirical(hp.freq, unit="log2")
+
+# calculate max entropy
+ent.max = log2(sum(hp.freq))
+
+# calculate normalized entropy
+ent.calc / ent.max
+
+# See here for some discussions about implementing entropy: https://math.stackexchange.com/questions/395121/how-entropy-scales-with-sample-size
+
+?entropy.empirical # info on params you can adjust
+```
+
+*** END ***
+
+
+
+
