@@ -105,8 +105,8 @@ If you find the Gini coefficient particularly interesting, then have a look at s
 Entropy is a measure of disorder within a distribution; higher entropy means that a system is more disordered and therefore harder to predict. If you want a refresher, with a nice worked through example, I found a great Youtube video here - https://www.youtube.com/watch?v=ErfnhcEV1O8&list=LLpnMwTVTiriukuWO3AenRSA&index=2&t=333s Only the first few minutes are relevant for understanding Shannon entropy (they guy then goes onto discuss cross-entropy) but it really is worth a look.
 
 ```{r shannon-entropy, echo = F}
-# take a single variable and get a frequency table
-hp.freq = table(mtcars$hp)
+# take a single variable
+hp.freq = mtcars$hp
 
 # calculate actual entropy
 ent.calc = entropy::entropy.empirical(hp.freq, unit="log2")
